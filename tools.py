@@ -5,6 +5,7 @@ import uuid
 from contextlib import suppress
 from io import BytesIO
 from urllib.parse import parse_qs, urlparse
+from typing import Optional  # 👈 added this
 
 import requests
 from PIL import Image
@@ -15,15 +16,6 @@ from redis_db import db
 
 
 def check_url_patterns(url: str) -> bool:
-    """
-    Check if the given URL matches any of the known URL patterns for code hosting services.
-
-    Parameters:
-    url (str): The URL to be checked.
-
-    Returns:
-    bool: True if the URL matches a known pattern, False otherwise.
-    """
     patterns = [
         r"ww\.mirrobox\.com",
         r"www\.nephobox\.com",
@@ -46,86 +38,43 @@ def check_url_patterns(url: str) -> bool:
         r"www\.tibibox\.com",
         r"www\.teraboxapp\.com",
     ]
-
     for pattern in patterns:
         if re.search(pattern, url):
             return True
-
     return False
 
 
-def extract_code_from_url(url: str) -> str | None:
-    """
-    Extracts the code from a URL.
-
-    Parameters:
-        url (str): The URL to extract the code from.
-
-    Returns:
-        str: The extracted code, or None if the URL does not contain a code.
-    """
+def extract_code_from_url(url: str) -> Optional[str]:
     pattern1 = r"/s/(\w+)"
     pattern2 = r"surl=(\w+)"
-
     match = re.search(pattern1, url)
     if match:
         return match.group(1)
-
     match = re.search(pattern2, url)
     if match:
         return match.group(1)
-
     return None
 
 
-def get_urls_from_string(string: str) -> str | None:
-    """
-    Extracts all URLs from a given string.
-
-    Parameters:
-        string (str): The input string.
-
-    Returns:
-        str: The first URL found in the input string, or None if no URLs were found.
-    """
+def get_urls_from_string(string: str) -> Optional[str]:
     pattern = r"(https?://\S+)"
     urls = re.findall(pattern, string)
     urls = [url for url in urls if check_url_patterns(url)]
     if not urls:
-        return
+        return None
     return urls[0]
 
 
-def extract_surl_from_url(url: str) -> str:
-    """
-    Extracts the surl from a URL.
-
-    Parameters:
-        url (str): The URL to extract the surl from.
-
-    Returns:
-        str: The extracted surl, or None if the URL does not contain a surl.
-    """
+def extract_surl_from_url(url: str) -> Optional[str]:
     parsed_url = urlparse(url)
     query_params = parse_qs(parsed_url.query)
     surl = query_params.get("surl", [])
-
     if surl:
         return surl[0]
-    else:
-        return False
+    return None
 
 
 def get_formatted_size(size_bytes: int) -> str:
-    """
-    Returns a human-readable file size from the given number of bytes.
-
-    Parameters:
-        size_bytes (int): The number of bytes to be converted to a file size.
-
-    Returns:
-        str: The file size in a human-readable format.
-    """
     if size_bytes >= 1024 * 1024:
         size = size_bytes / (1024 * 1024)
         unit = "MB"
@@ -135,20 +84,10 @@ def get_formatted_size(size_bytes: int) -> str:
     else:
         size = size_bytes
         unit = "b"
-
     return f"{size:.2f} {unit}"
 
 
 def convert_seconds(seconds: int) -> str:
-    """
-    Convert seconds into a human-readable format.
-
-    Parameters:
-        seconds (int): The number of seconds to convert.
-
-    Returns:
-        str: The seconds converted to a human-readable format.
-    """
     seconds = int(seconds)
     hours = seconds // 3600
     remaining_seconds = seconds % 3600
@@ -164,17 +103,6 @@ def convert_seconds(seconds: int) -> str:
 
 
 async def is_user_on_chat(bot: TelegramClient, chat_id: int, user_id: int) -> bool:
-    """
-    Check if a user is present in a specific chat.
-
-    Parameters:
-        bot (TelegramClient): The Telegram client instance.
-        chat_id (int): The ID of the chat.
-        user_id (int): The ID of the user.
-
-    Returns:
-        bool: True if the user is present in the chat, False otherwise.
-    """
     try:
         check = await bot.get_permissions(chat_id, user_id)
         return check
@@ -182,31 +110,23 @@ async def is_user_on_chat(bot: TelegramClient, chat_id: int, user_id: int) -> bo
         return False
 
 
-async def download_file(
-    url: str,
-    filename: str,
-    callback=None,
-) -> str | bool:
+async def download_file(url: str, filename: str, callback=None) -> Optional[str]:
     try:
         response = requests.get(url, stream=True)
         response.raise_for_status()
-        with suppress(
-            requests.exceptions.ChunkedEncodingError,
-        ):
+        with suppress(requests.exceptions.ChunkedEncodingError):
             with open(filename, "wb") as file:
                 for chunk in response.iter_content(chunk_size=1024):
                     file.write(chunk)
                     if callback:
                         downloaded_size = file.tell()
-                        total_size = int(
-                            response.headers.get("content-length", 0))
+                        total_size = int(response.headers.get("content-length", 0))
                         await callback(downloaded_size, total_size, "Downloading")
-        # await asyncio.sleep(2)
         return filename
     except Exception as e:
         traceback.print_exc()
         print(f"Error downloading file: {e}")
-        raise Exception(e)
+        return None
 
 
 def save_image_from_bytesio(image_bytesio, filename):
@@ -215,25 +135,13 @@ def save_image_from_bytesio(image_bytesio, filename):
         image = Image.open(image_bytesio)
         image.save(filename)
         image.close()
-
         return filename
-
     except Exception as e:
         print(f"Error saving image: {e}")
         return False
 
 
-def download_image_to_bytesio(url: str, filename: str) -> BytesIO | None:
-    """
-    Downloads an image from a URL and returns it as a BytesIO object.
-
-    Args:
-        url (str): The URL of the image to download.
-        filename (str): The filename to save the image as.
-
-    Returns:
-        BytesIO: The image data as a BytesIO object, or None if the download failed.
-    """
+def download_image_to_bytesio(url: str, filename: str) -> Optional[BytesIO]:
     try:
         response = requests.get(url)
         content = BytesIO()
@@ -251,23 +159,17 @@ def download_image_to_bytesio(url: str, filename: str) -> BytesIO | None:
 
 def remove_all_videos():
     current_directory = os.getcwd()
-
     video_extensions = [".mp4", ".mkv", ".webm"]
-
     try:
         for file_name in os.listdir(current_directory):
             if any(file_name.lower().endswith(ext) for ext in video_extensions):
                 file_path = os.path.join(current_directory, file_name)
-
                 os.remove(file_path)
-
     except Exception as e:
         print(f"Error: {e}")
 
 
-def generate_shortenedUrl(
-    sender_id: int,
-):
+def generate_shortenedUrl(sender_id: int) -> Optional[str]:
     try:
         uid = str(uuid.uuid4())
         data = requests.get(
@@ -286,5 +188,5 @@ def generate_shortenedUrl(
             return url
         else:
             return None
-    except Exception as e:
+    except Exception:
         return None
